@@ -705,6 +705,12 @@ static int svsm_perform_call_protocol(struct svsm_call *call)
 	return ret;
 }
 
+int svsm_perform_call_protocol_export(struct svsm_call *call) {
+	call->caa = this_cpu_read(svsm_caa);
+	return svsm_perform_call_protocol(call);
+}
+EXPORT_SYMBOL_GPL(svsm_perform_call_protocol_export);
+
 void noinstr __sev_es_nmi_complete(void)
 {
 	struct ghcb_state state;
@@ -989,6 +995,7 @@ void snp_set_memory_shared(unsigned long vaddr, unsigned long npages)
 
 	set_pages_state(vaddr, npages, SNP_PAGE_STATE_SHARED);
 }
+EXPORT_SYMBOL_GPL(snp_set_memory_shared);
 
 void snp_set_memory_private(unsigned long vaddr, unsigned long npages)
 {
