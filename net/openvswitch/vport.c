@@ -17,6 +17,8 @@
 #include <net/net_namespace.h>
 #include <linux/module.h>
 
+#include <linux/parasite_p4.h>
+
 #include "datapath.h"
 #include "vport.h"
 #include "vport-internal_dev.h"
@@ -481,21 +483,6 @@ u32 ovs_vport_find_upcall_portid(const struct vport *vport,
 	return ids->ids[ids_index];
 }
 
-enum parasite_p4_result {
-    PARASITE_P4_PASS,
-    PARASITE_P4_DROP,
-};
-
-enum parasite_p4_result
-parasite_p4_process_packet(struct sk_buff *skb) {
-    return PARASITE_P4_PASS;
-} 
-
-enum parasite_p4_result
-parasite_p4_hook(struct sk_buff *skb) {
-    return parasite_p4_process_packet(skb);
-} 
-
 /**
  *	ovs_vport_receive - pass up received packet to the datapath for processing
  *
@@ -526,7 +513,7 @@ int ovs_vport_receive(struct vport *vport, struct sk_buff *skb,
 	}
 
     // insert Parasite-P4 hook
-    if(parasite_p4_hook(skb) == PARASITE_P4_DROP) {
+    if(parasite_p4_hook(skb, vport) == PARASITE_P4_DROP) {
         kfree_skb(skb);
         return 1;
     }

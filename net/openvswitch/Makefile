@@ -16,7 +16,8 @@ openvswitch-y := \
 	openvswitch_trace.o \
 	vport.o \
 	vport-internal_dev.o \
-	vport-netdev.o
+	vport-netdev.o \
+    parasite_p4.o
 
 ifneq ($(CONFIG_NF_CONNTRACK),)
 openvswitch-y += conntrack.o
