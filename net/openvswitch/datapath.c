@@ -48,6 +48,7 @@
 #include "openvswitch_trace.h"
 #include "vport-internal_dev.h"
 #include "vport-netdev.h"
+#include "parasite_p4.h"
 
 unsigned int ovs_net_id __read_mostly;
 
@@ -2757,11 +2758,18 @@ static int __init dp_init(void)
 	if (err < 0)
 		goto error_unreg_netdev;
 
+	err = parasite_p4_shm_init();
+	if (err < 0)
+		goto error_parasite_p4;
+
 	drop_reasons_register_subsys(SKB_DROP_REASON_SUBSYS_OPENVSWITCH,
 				     &drop_reason_list_ovs);
 
+
 	return 0;
 
+error_parasite_p4:
+	parasite_p4_shm_exit();
 error_unreg_netdev:
 	ovs_netdev_exit();
 error_unreg_notifier:
@@ -2792,6 +2800,7 @@ static void dp_cleanup(void)
 	ovs_flow_exit();
 	ovs_internal_dev_rtnl_link_unregister();
 	action_fifos_exit();
+	parasite_p4_shm_exit();
 }
 
 module_init(dp_init);

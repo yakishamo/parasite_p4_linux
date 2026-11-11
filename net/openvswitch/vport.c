@@ -17,8 +17,7 @@
 #include <net/net_namespace.h>
 #include <linux/module.h>
 
-#include <linux/parasite_p4.h>
-
+#include "parasite_p4.h"
 #include "datapath.h"
 #include "vport.h"
 #include "vport-internal_dev.h"
