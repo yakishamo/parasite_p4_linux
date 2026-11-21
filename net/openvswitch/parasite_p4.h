@@ -12,6 +12,9 @@ struct vport;
 
 int parasite_p4_shm_init(void);
 void parasite_p4_shm_exit(void);
-enum parasite_p4_result parasite_p4_hook(struct sk_buff* skb, struct vport* vport, struct ws_flow_key *key);
+enum parasite_p4_result parasite_p4_hook(
+	 struct sk_buff* skb,
+	 struct vport* vport,
+	 struct sw_flow_key *key);
 
 #endif /* _PARASITE_P4_H */

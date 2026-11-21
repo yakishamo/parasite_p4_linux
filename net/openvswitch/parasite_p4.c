@@ -51,7 +51,6 @@ static struct page **shm_pages;
 static unsigned int shm_num_pages;
 static struct parasite_p4_shm *shm;
 
-static struct sk_buff_head packet_queue;
 static DECLARE_WAIT_QUEUE_HEAD(packet_waitq);
 static struct task_struct *packet_thread;
 
@@ -174,7 +173,7 @@ static int parasite_p4_thread(void *data) {
 
 	while(!kthread_should_stop()) {
 		wait_event_interruptible(packet_waitq,
-			kthread_should_stop() || !skb_queue_empty(&packet_queue));
+			kthread_should_stop() || READ_ONCE(pending_qlen) != 0);
 		if(kthread_should_stop()) {
 			break;
 		}
@@ -222,8 +221,6 @@ void parasite_p4_shm_exit(void) {
 	// kill kernel thread and queue
 	parasite_p4_queue_shutdown();
 
-	skb_queue_purge(&packet_queue);
-
 	if(shm) {
 		vunmap(shm);
 		shm = NULL;
@@ -250,7 +247,6 @@ int parasite_p4_shm_init(void) {
 	unsigned int i;
 	int ret;
 
-	skb_queue_head_init(&packet_queue);
 	packet_thread = NULL;
 
 	shm_file = filp_open(PARASITE_P4_SHM_PATH, O_RDWR, 0);
