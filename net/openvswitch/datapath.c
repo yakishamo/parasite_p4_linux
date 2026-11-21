@@ -2754,11 +2754,13 @@ static int __init dp_init(void)
 	if (err)
 		goto error_unreg_notifier;
 
-	err = dp_register_genl();
-	if (err < 0)
-		goto error_unreg_netdev;
-
 	err = parasite_p4_shm_init();
+	if (err < 0) {
+		pr_err("Parasite-P4 init failed: %d\n", err);
+		goto error_unreg_netdev;
+	}
+
+	err = dp_register_genl();
 	if (err < 0)
 		goto error_parasite_p4;
 
@@ -2796,11 +2798,12 @@ static void dp_cleanup(void)
 	unregister_pernet_device(&ovs_net_ops);
 	drop_reasons_unregister_subsys(SKB_DROP_REASON_SUBSYS_OPENVSWITCH);
 	rcu_barrier();
+	synchronize_rcu();
+	parasite_p4_shm_exit();
 	ovs_vport_exit();
 	ovs_flow_exit();
 	ovs_internal_dev_rtnl_link_unregister();
 	action_fifos_exit();
-	parasite_p4_shm_exit();
 }
 
 module_init(dp_init);
