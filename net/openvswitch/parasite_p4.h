@@ -9,6 +9,7 @@ enum parasite_p4_result {
 
 struct sk_buff;
 struct vport;
+struct sw_flow_key;
 
 int parasite_p4_shm_init(void);
 void parasite_p4_shm_exit(void);

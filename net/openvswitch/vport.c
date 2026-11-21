@@ -524,7 +524,7 @@ int ovs_vport_receive(struct vport *vport, struct sk_buff *skb,
 		case PARASITE_P4_DROP:
 			kfree_skb(skb);
 			return 0;
-		case PARASITE_P_PASS:
+		case PARASITE_P4_PASS:
 		default:
 		break;
 	}

@@ -40,6 +40,13 @@ static bool pending_stopping;
 #define PARASITE_P4_SHM_SIZE (2UL * 1024 * 1024)
 #define PARASITE_P4_PACKET_SIZE 256
 
+enum parasite_p4_shm_status {
+	none,
+	to_svsm,
+	processing,
+	to_ovs,
+};
+
 struct parasite_p4_shm {
 	enum parasite_p4_shm_status status;
 	u64 result;
@@ -147,13 +154,6 @@ static struct parasite_p4_pending *parasite_p4_dequeue(void) {
 	
 	return req;
 }
-
-enum parasite_p4_shm_status {
-	none,
-	to_svsm,
-	processing,
-	to_ovs,
-};
 
 static int parasite_p4_write_packet(struct sk_buff *skb, int index) {
 	size_t len;
