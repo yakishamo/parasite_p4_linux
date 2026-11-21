@@ -511,18 +511,24 @@ int ovs_vport_receive(struct vport *vport, struct sk_buff *skb,
 		tun_info = NULL;
 	}
 
-    // insert Parasite-P4 hook
-    if(parasite_p4_hook(skb, vport) == PARASITE_P4_DROP) {
-        kfree_skb(skb);
-        return 1;
-    }
-
 	/* Extract flow from 'skb' into 'key'. */
 	error = ovs_flow_key_extract(tun_info, skb, &key);
 	if (unlikely(error)) {
 		kfree_skb(skb);
 		return error;
 	}
+
+	switch(parasite_p4_hook(skb, vport, &key)) {
+		case PARASITE_P4_STOLEN:
+			return 0;
+		case PARASITE_P4_DROP:
+			kfree_skb(skb);
+			return 0;
+		case PARASITE_P_PASS:
+		default:
+		break;
+	}
+
 	ovs_dp_process_packet(skb, &key);
 	return 0;
 }

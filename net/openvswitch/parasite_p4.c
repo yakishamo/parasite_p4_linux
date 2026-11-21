@@ -16,7 +16,7 @@
 #include "vport.h"
 #include "flow.h"
 
-#define PARASITE_P4_QUEUE_MAX
+#define PARASITE_P4_QUEUE_MAX 1024
 
 struct parasite_p4_pending {
 	struct list_head list;
@@ -29,12 +29,31 @@ struct parasite_p4_pending {
 	int dp_ifindex;
 	u16 port_no;
 	u64 port_generation;
-}
+};
 
 static LIST_HEAD(pending_queue);
 static DEFINE_SPINLOCK(pending_lock);
 static unsigned int pending_qlen;
 static bool pending_stopping;
+
+#define PARASITE_P4_SHM_PATH "/dev/shm/ivshmem_p4"
+#define PARASITE_P4_SHM_SIZE (2UL * 1024 * 1024)
+#define PARASITE_P4_PACKET_SIZE 256
+
+struct parasite_p4_shm {
+	enum parasite_p4_shm_status status;
+	u64 result;
+	u8 packets[][PARASITE_P4_PACKET_SIZE];
+} __attribute__((packed));
+
+static struct file *shm_file;
+static struct page **shm_pages;
+static unsigned int shm_num_pages;
+static struct parasite_p4_shm *shm;
+
+static struct sk_buff_head packet_queue;
+static DECLARE_WAIT_QUEUE_HEAD(packet_waitq);
+static struct task_struct *packet_thread;
 
 static void parasite_p4_pending_free(struct parasite_p4_pending *req) {
 	if(!req) {
@@ -137,25 +156,6 @@ enum parasite_p4_shm_status {
 	to_ovs,
 };
 
-#define PARASITE_P4_SHM_PATH "/dev/shm/ivshmem_p4"
-#define PARASITE_P4_SHM_SIZE (2UL * 1024 * 1024)
-#define PARASITE_P4_PACKET_SIZE 256
-
-struct parasite_p4_shm {
-	enum parasite_p4_shm_status status;
-	u64 result;
-	u8 packets[][PARASITE_P4_PACKET_SIZE];
-} __attribute__((packed));
-
-static struct file *shm_file;
-static struct page **shm_pages;
-static unsigned int shm_num_pages;
-static struct parasite_p4_shm *shm;
-
-static struct sk_buff_head packet_queue;
-static DECLARE_WAIT_QUEUE_HEAD(packet_waitq);
-static struct task_struct *packet_thread;
-
 static int parasite_p4_write_packet(struct sk_buff *skb, int index) {
 	size_t len;
 	if(!shm){
@@ -219,6 +219,7 @@ static void parasite_p4_queue_shutdown(void) {
 void parasite_p4_shm_exit(void) {
 	unsigned int i;
 
+	// kill kernel thread and queue
 	parasite_p4_queue_shutdown();
 
 	skb_queue_purge(&packet_queue);
