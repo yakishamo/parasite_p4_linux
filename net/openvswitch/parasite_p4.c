@@ -11,6 +11,7 @@
 #include <linux/delay.h>
 #include <linux/jiffies.h>
 #include <linux/string.h>
+#include <linux/unaligned.h>
 
 #include "parasite_p4.h"
 
@@ -311,7 +312,7 @@ static int parasite_p4_process_packet(
 			 * SVSM's result is observed after
 			 * its release store to status.
 			 */
-			*result = READ_ONCE(shm->result);
+			*result = get_unaligned(&shm->result);
 
 			/*
 			 * Acknowledge completion.
