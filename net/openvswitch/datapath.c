@@ -2792,6 +2792,7 @@ error:
 
 static void dp_cleanup(void)
 {
+	parasite_p4_shm_exit();
 	dp_unregister_genl(ARRAY_SIZE(dp_genl_families));
 	ovs_netdev_exit();
 	unregister_netdevice_notifier(&ovs_dp_device_notifier);
@@ -2799,7 +2800,6 @@ static void dp_cleanup(void)
 	drop_reasons_unregister_subsys(SKB_DROP_REASON_SUBSYS_OPENVSWITCH);
 	rcu_barrier();
 	synchronize_rcu();
-	parasite_p4_shm_exit();
 	ovs_vport_exit();
 	ovs_flow_exit();
 	ovs_internal_dev_rtnl_link_unregister();
