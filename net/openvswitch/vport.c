@@ -24,6 +24,8 @@
 
 static LIST_HEAD(vport_ops_list);
 
+static atomic64_t parasite_vport_generation = ATOMIC64_INIT(0);
+
 /* Protected by RCU read lock for reading, ovs_mutex for writing. */
 static struct hlist_head *dev_table;
 #define VPORT_HASH_BUCKETS 1024
@@ -146,6 +148,9 @@ struct vport *ovs_vport_alloc(int priv_size, const struct vport_ops *ops,
 	vport->dp = parms->dp;
 	vport->port_no = parms->port_no;
 	vport->ops = ops;
+	vport->parasite_generation = 
+		(u64)atomic64_inc_return(
+			&parasite_vport_generation);
 	INIT_HLIST_NODE(&vport->dp_hash_node);
 
 	if (ovs_vport_set_upcall_portids(vport, parms->upcall_portids)) {

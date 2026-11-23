@@ -14,6 +14,7 @@
 #include <linux/skbuff.h>
 #include <linux/spinlock.h>
 #include <linux/u64_stats_sync.h>
+#include <linux/atomic.h>
 
 #include "datapath.h"
 
@@ -77,6 +78,9 @@ struct vport {
 	struct datapath	*dp;
 	struct vport_portids __rcu *upcall_portids;
 	u16 port_no;
+
+	/* Parasite-P4 */
+	u64 parasite_generation;
 
 	struct hlist_node hash_node;
 	struct hlist_node dp_hash_node;

@@ -9,6 +9,8 @@
 #include <linux/kthread.h>
 #include <linux/wait.h>
 #include <linux/delay.h>
+#include <linux/jiffies.h>
+#include <linux/string.h>
 
 #include "parasite_p4.h"
 
@@ -106,6 +108,7 @@ static int parasite_p4_enqueue(
 	req->key = *key;
 	req->dp_ifindex = local->dev->ifindex;
 	req->port_no = vport->port_no;
+	req->port_generation = vport->parasite_generation;
 
 	req->net = get_net(ovs_dp_get_net(vport->dp));
 
@@ -155,15 +158,194 @@ static struct parasite_p4_pending *parasite_p4_dequeue(void) {
 	return req;
 }
 
+#define PARASITE_P4_PACKET_MAX \
+	((PARASITE_P4_SHM_SIZE - \
+	  offsetof(struct parasite_p4_shm, packets)) / \
+	  PARASITE_P4_PACKET_SIZE)
 static int parasite_p4_write_packet(struct sk_buff *skb, int index) {
 	size_t len;
+	int ret = 0;
 	if(!shm){
 		return -ENODEV;
 	}
 
+	if(index >= PARASITE_P4_PACKET_MAX) {
+		return -EINVAL;
+	}
+
 	len = min_t(size_t, skb->len, PARASITE_P4_PACKET_SIZE);
 
-	return skb_copy_bits(skb, 0, &shm->packets[index], len);
+	memset(shm->packets[index], 0, PARASITE_P4_PACKET_SIZE);
+	ret = skb_copy_bits(skb, 0, shm->packets[index], len);
+
+	if(ret) {
+		return ret;
+	}
+
+	return 0;
+}
+
+static int ovs_parasite_resume(
+	struct parasite_p4_pending *req)
+{
+	struct datapath *dp;
+	struct vport *vport;
+	struct sk_buff *skb = req->skb;
+	int ret = 0;
+
+	if(!skb) {
+		return -EINVAL;
+	}
+
+	local_bh_disable();
+	rcu_read_lock();
+
+	/* 1. Find the datapath */
+	dp = get_dp_rcu(req->net, req->dp_ifindex);
+	if(!dp) {
+		ret = -ENODEV;
+		goto out;
+	}
+
+	/* 2. Find the input vport */
+	vport = ovs_vport_rcu(dp, req->port_no);
+	if(!vport) {
+		ret = -ENODEV;
+		goto out;
+	}
+
+	/* 3. Verify vport identity */
+	if (vport->parasite_generation != req->port_generation) {
+		ret = -ENODEV;
+		goto out;
+	}
+
+	/* 4. Replace the stale vport pointer */
+	OVS_CB(skb)->input_vport = vport;
+
+	/* 5. Rsume OVS packet processing */
+	req->skb = NULL;
+	ovs_dp_process_packet(skb, &req->key);
+
+out:
+	rcu_read_unlock();
+	local_bh_enable();
+
+	return ret;
+}
+
+enum parasite_p4_decision {
+	PARASITE_P4_DENY = 0,
+	PARASITE_P4_ALLOW = 1,
+};
+
+#define PARASITE_P4_TIMEOUT_MS 1000
+/*
+ * One worker, one outstanding request.
+ * 
+ * Once the channel becomes unsynchronized,
+ * do not reuse it until both peers are reset.
+ */
+static bool parasite_p4_channel_failed;
+
+static int parasite_p4_process_packet(
+	struct sk_buff *skb,
+	u64 *result)
+{
+	unsigned long deadline;
+	u32 status;
+	int ret;
+
+	if(!skb || !result) {
+		return -EINVAL;
+	}
+
+	if(!shm) {
+		return -ENODEV;
+	}
+
+	if(READ_ONCE(parasite_p4_channel_failed)) {
+		return -EIO;
+	}
+
+	if(kthread_should_stop()) {
+		return -ESHUTDOWN;
+	}
+
+	/* 
+	 * The shared memory slot must be idle.
+	 */
+	status = smp_load_acquire(&shm->status);
+	if(status != none){
+		return -EBUSY;
+	}
+
+	/*
+	 * Copy the packet int shared memory.
+	 */
+	ret = parasite_p4_write_packet(skb, 0);
+	if(ret) {
+		return ret;
+	}
+
+	/*
+	 * Make packet data visible before publishing
+	 * the request to SVSM.
+	 */
+	smp_store_release(&shm->status, to_svsm);
+
+	deadline = jiffies +
+		msecs_to_jiffies(PARASITE_P4_TIMEOUT_MS);
+
+	/*
+	 * Wait for SVSM to finish processing.
+	 */
+	for(;;) {
+		if(kthread_should_stop()) {
+			return -ESHUTDOWN;
+		}
+		status = smp_load_acquire(&shm->status);
+		if(status == to_ovs) {
+			/*
+			 * The acquire load ensures that
+			 * SVSM's result is observed after
+			 * its release store to status.
+			 */
+			*result = READ_ONCE(shm->result);
+
+			/*
+			 * Acknowledge completion.
+			 */
+			smp_store_release(&shm->status, none);
+			return 0;
+		}
+
+		/*
+		 * Only these intermediate status
+		 * are valid while waiting.
+		 */
+		if(status != to_svsm &&
+				status != processing) {
+			WRITE_ONCE(
+					parasite_p4_channel_failed, true);
+			return -EPROTO;
+		}
+
+		/*
+		 * SVSM may have stopped responding.
+		 * Do not reuse this shared-memory slot.
+		 */
+		if(time_after_eq(jiffies, deadline)) {
+			WRITE_ONCE(
+					parasite_p4_channel_failed, true);
+			return -ETIMEDOUT;
+		}
+		
+		/*
+		 * Avoid busy-waiting.
+		 */
+		usleep_range(100,200);
+	}
 }
 
 static int parasite_p4_thread(void *data) {
@@ -185,10 +367,12 @@ static int parasite_p4_thread(void *data) {
 
 		ret = parasite_p4_process_packet(req->skb, &result);
 
-		if(ret == 0 && result == PARASITE_P4_ALLOW) {
-			struct sk_buff *skb = req->skb;
-			req->skb = NULL;
-			ovs_parasite_resume(req);
+		if(ret == 0 && result == PARASITE_P4_ALLOW &&
+				!kthread_should_stop()) {
+			ret = ovs_parasite_resume(req);
+			if(ret) {
+				pr_debug("Parasite-P4: resume failed: %d\n", ret);
+			}
 		}
 
 		parasite_p4_pending_free(req);
