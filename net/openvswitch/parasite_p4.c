@@ -368,11 +368,17 @@ static int parasite_p4_thread(void *data) {
 
 		ret = parasite_p4_process_packet(req->skb, &result);
 
-		if(ret == 0 && result == PARASITE_P4_ALLOW &&
+		if(ret) {
+			if(ret != -ESHUTDOWN) {
+				pr_warn_ratelimited(
+					"Parasite-P4: processing failed: %d\n", ret);
+			}
+		} else if(result == PARASITE_P4_ALLOW &&
 				!kthread_should_stop()) {
 			ret = ovs_parasite_resume(req);
 			if(ret) {
-				pr_debug("Parasite-P4: resume failed: %d\n", ret);
+				pr_warn_ratelimited(
+					"Parasite_P4: resume failed: %d\n",ret);
 			}
 		}
 
