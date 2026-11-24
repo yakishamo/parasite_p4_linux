@@ -12,6 +12,7 @@
 #include <linux/jiffies.h>
 #include <linux/string.h>
 #include <asm/unaligned.h>
+#include <net/dst.h> 
 
 #include "parasite_p4.h"
 
@@ -97,6 +98,12 @@ static int parasite_p4_enqueue(
 	local = ovs_vport_rcu(vport->dp, OVSP_LOCAL);
 	if(!local || !local->dev || !skb->dev) {
 		return -ENODEV;
+	}
+
+	if(skb_dst_is_noref(skb)) {
+		if(!skb_dst_force(skb)) {
+			return -ENODEV;
+		}
 	}
 
 	req = kzalloc(sizeof(*req), GFP_ATOMIC);
@@ -482,6 +489,8 @@ int parasite_p4_shm_init(void) {
 	}
 
 	pr_info("Parasite-P4: mapped %lu bytes at %p\n", (unsigned long)PARASITE_P4_SHM_SIZE, shm);
+
+	smp_store_release(&shm->status, none);
 
 	packet_thread = kthread_run(parasite_p4_thread, NULL, "parasite-p4");
 	if(IS_ERR(packet_thread)) {
