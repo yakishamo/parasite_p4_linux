@@ -11,7 +11,7 @@
 #include <linux/delay.h>
 #include <linux/jiffies.h>
 #include <linux/string.h>
-#include <linux/unaligned.h>
+#include <asm/unaligned.h>
 
 #include "parasite_p4.h"
 
