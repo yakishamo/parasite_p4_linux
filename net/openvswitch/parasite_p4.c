@@ -231,7 +231,7 @@ static int ovs_parasite_resume(
 	/* 4. Replace the stale vport pointer */
 	OVS_CB(skb)->input_vport = vport;
 
-	/* 5. Rsume OVS packet processing */
+	/* 5. Resume OVS packet processing */
 	req->skb = NULL;
 	ovs_dp_process_packet(skb, &req->key);
 
@@ -243,8 +243,8 @@ out:
 }
 
 enum parasite_p4_decision {
-	PARASITE_P4_DENY = 0,
-	PARASITE_P4_ALLOW = 1,
+	PARASITE_P4_ALLOW = 0,
+	PARASITE_P4_DENY = 1,
 };
 
 #define PARASITE_P4_TIMEOUT_MS 1000
@@ -344,15 +344,16 @@ static int parasite_p4_process_packet(
 		 * Do not reuse this shared-memory slot.
 		 */
 		if(time_after_eq(jiffies, deadline)) {
-			WRITE_ONCE(
-					parasite_p4_channel_failed, true);
+			pr_err("Parasite-P4: timeout: status=%u, current_status=%u\n",
+					status, smp_load_acquire(&shm->status));
+			WRITE_ONCE(parasite_p4_channel_failed, true);
 			return -ETIMEDOUT;
 		}
 		
 		/*
 		 * Avoid busy-waiting.
 		 */
-		usleep_range(100,200);
+		usleep_range(1,5);
 	}
 }
 
@@ -490,7 +491,7 @@ int parasite_p4_shm_init(void) {
 
 	pr_info("Parasite-P4: mapped %lu bytes at %p\n", (unsigned long)PARASITE_P4_SHM_SIZE, shm);
 
-	smp_store_release(&shm->status, none);
+	memset(shm, 0, PARASITE_P4_SHM_SIZE);
 
 	packet_thread = kthread_run(parasite_p4_thread, NULL, "parasite-p4");
 	if(IS_ERR(packet_thread)) {
